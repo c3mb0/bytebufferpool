@@ -15,6 +15,8 @@ const (
 
 	calibrateCallsThreshold = 42000
 	maxPercentile           = 0.95
+
+	maxTotalSize = uint64(3) << 30
 )
 
 // Pool represents byte buffer pool.
@@ -28,6 +30,7 @@ type Pool struct {
 
 	defaultSize uint64
 	maxSize     uint64
+	totalSize   uint64
 
 	pool sync.Pool
 }
@@ -48,7 +51,16 @@ func Get() *ByteBuffer { return defaultPool.Get() }
 func (p *Pool) Get() *ByteBuffer {
 	v := p.pool.Get()
 	if v != nil {
-		return v.(*ByteBuffer)
+		bb := v.(*ByteBuffer)
+		ts := atomic.LoadUint64(&p.totalSize)
+		bbs := uint64(len(bb.B))
+		if bbs >= ts {
+			ts = 0
+		} else {
+			ts -= bbs
+		}
+		atomic.StoreUint64(&p.totalSize, ts)
+		return bb
 	}
 	return &ByteBuffer{
 		B: make([]byte, 0, atomic.LoadUint64(&p.defaultSize)),
@@ -72,7 +84,10 @@ func (p *Pool) Put(b *ByteBuffer) {
 	}
 
 	maxSize := int(atomic.LoadUint64(&p.maxSize))
-	if maxSize == 0 || cap(b.B) <= maxSize {
+	ts := atomic.LoadUint64(&p.totalSize)
+	bbs := uint64(len(b.B))
+	if ts+bbs <= maxTotalSize && (maxSize == 0 || cap(b.B) <= maxSize) {
+		atomic.AddUint64(&p.totalSize, bbs)
 		b.Reset()
 		p.pool.Put(b)
 	}
