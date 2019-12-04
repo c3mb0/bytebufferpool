@@ -53,7 +53,7 @@ func (p *Pool) Get() *ByteBuffer {
 	if v != nil {
 		bb := v.(*ByteBuffer)
 		ts := atomic.LoadUint64(&p.totalSize)
-		bbs := uint64(len(bb.B))
+		bbs := uint64(cap(bb.B))
 		if bbs >= ts {
 			ts = 0
 		} else {
@@ -83,10 +83,9 @@ func (p *Pool) Put(b *ByteBuffer) {
 		p.calibrate()
 	}
 
-	maxSize := int(atomic.LoadUint64(&p.maxSize))
-	ts := atomic.LoadUint64(&p.totalSize)
-	bbs := uint64(len(b.B))
-	if ts+bbs <= maxTotalSize && (maxSize == 0 || cap(b.B) <= maxSize) {
+	maxSize := atomic.LoadUint64(&p.maxSize)
+	bbs := uint64(cap(b.B))
+	if atomic.LoadUint64(&p.totalSize)+bbs <= maxTotalSize && (maxSize == 0 || bbs <= maxSize) {
 		atomic.AddUint64(&p.totalSize, bbs)
 		b.Reset()
 		p.pool.Put(b)
